@@ -175,23 +175,24 @@ Stores the currently registered adapter classes.
 
 The order in which the adapters are registered is important. When an `ItemAdapter` object is
 created for a specific item, the registered adapters are traversed in order and the first
-adapter class to return `True` for the `is_item` class method is used for all subsequent
+adapter class to return `True` for the `is_item_class` class method is used for all subsequent
 operations. The default order is the one defined in the
 [built-in adapters](#built-in-adapters) section.
 
-The default implementation uses a
-[`collections.deque`](https://docs.python.org/3/library/collections.html#collections.deque)
-to support efficient addition/deletion of adapters classes to both ends, but if you are
-deriving a subclass (see the section on [extending itemadapter](#extending-itemadapter)
-for additional information), any other iterable (e.g. `list`, `tuple`) will work.
+The default implementation is a `tuple`, but any other iterable (e.g. `list`,
+[`collections.deque`](https://docs.python.org/3/library/collections.html#collections.deque))
+will work.
+
+Which adapter class handles a given item class is cached, so `is_item_class` must
+return the same result every time it is called with the same item class.
 
 **Methods**
 
 #### class method `is_item(item: Any) -> bool`
 
-Return `True` if any of the registed adapters can handle the item
-(i.e. if any of them returns `True` for its `is_item` method with
-`item` as argument), `False` otherwise.
+Return `True` if any of the registered adapters can handle the class of the item
+(i.e. if any of them returns `True` for its `is_item_class` method with
+`item.__class__` as argument), `False` otherwise.
 
 #### class method `is_item_class(item_class: type) -> bool`
 

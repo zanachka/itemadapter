@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import dataclasses
 from abc import ABCMeta, abstractmethod
-from collections import deque
 from collections.abc import Iterable, Iterator, KeysView, MutableMapping
+from functools import lru_cache
 from types import MappingProxyType
 from typing import Any
 
@@ -17,7 +17,7 @@ from itemadapter._json_schema import (
     _setdefault_attribute_docstrings_on_json_schema,
     _setdefault_attribute_types_on_json_schema,
 )
-from itemadapter.utils import (
+from itemadapter._utils import (
     _get_pydantic_model_metadata,
     _get_pydantic_v1_model_metadata,
     _is_attrs_class,
@@ -361,45 +361,49 @@ class ScrapyItemAdapter(_MixinDictScrapyItemAdapter, AdapterInterface):
         return KeysView(self.item.fields)
 
 
+@lru_cache(maxsize=1024)
+def _find_adapter_class(
+    adapter_classes: tuple[type[AdapterInterface], ...], item_class: type
+) -> type[AdapterInterface] | None:
+    for adapter_class in adapter_classes:
+        if adapter_class.is_item_class(item_class):
+            return adapter_class
+    return None
+
+
 class ItemAdapter(MutableMapping):
     """Wrapper class to interact with data container objects. It provides a common interface
     to extract and set data without having to take the object's type into account.
     """
 
-    ADAPTER_CLASSES: Iterable[type[AdapterInterface]] = deque(
-        [
-            ScrapyItemAdapter,
-            DictAdapter,
-            DataclassAdapter,
-            AttrsAdapter,
-            PydanticAdapter,
-        ]
+    ADAPTER_CLASSES: Iterable[type[AdapterInterface]] = (
+        ScrapyItemAdapter,
+        DictAdapter,
+        DataclassAdapter,
+        AttrsAdapter,
+        PydanticAdapter,
     )
 
     def __init__(self, item: Any) -> None:
-        for cls in self.ADAPTER_CLASSES:
-            if cls.is_item(item):
-                self.adapter = cls(item)
-                break
-        else:
+        adapter_class = _find_adapter_class(tuple(self.ADAPTER_CLASSES), item.__class__)
+        if adapter_class is None:
             raise TypeError(f"No adapter found for objects of type: {type(item)} ({item})")
+        self.adapter = adapter_class(item)
 
     @classmethod
     def is_item(cls, item: Any) -> bool:
-        return any(adapter_class.is_item(item) for adapter_class in cls.ADAPTER_CLASSES)
+        return cls.is_item_class(item.__class__)
 
     @classmethod
     def is_item_class(cls, item_class: type) -> bool:
-        return any(
-            adapter_class.is_item_class(item_class) for adapter_class in cls.ADAPTER_CLASSES
-        )
+        return _find_adapter_class(tuple(cls.ADAPTER_CLASSES), item_class) is not None
 
     @classmethod
     def _get_adapter_class(cls, item_class: type) -> type[AdapterInterface]:
-        for adapter_class in cls.ADAPTER_CLASSES:
-            if adapter_class.is_item_class(item_class):
-                return adapter_class
-        raise TypeError(f"{item_class} is not a valid item class")
+        adapter_class = _find_adapter_class(tuple(cls.ADAPTER_CLASSES), item_class)
+        if adapter_class is None:
+            raise TypeError(f"{item_class} is not a valid item class")
+        return adapter_class
 
     @classmethod
     def get_field_meta_from_class(cls, item_class: type, field_name: str) -> MappingProxyType:

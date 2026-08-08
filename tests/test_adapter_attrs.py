@@ -57,6 +57,7 @@ class AttrsTestCase(unittest.TestCase):
     @mock.patch("builtins.__import__", make_mock_import("attr"))
     def test_module_import_error(self):
         with clear_itemadapter_imports():
+            from itemadapter import utils
             from itemadapter.adapter import AttrsAdapter
 
             assert not AttrsAdapter.is_item(AttrsItem(name="asdf", value=1234))
@@ -67,10 +68,10 @@ class AttrsTestCase(unittest.TestCase):
             with pytest.raises(RuntimeError, match="attr module is not available"):
                 AttrsAdapter.get_field_names_from_class(AttrsItem)
             with pytest.raises(TypeError, match=r"'tests.AttrsItem'\> is not a valid item class"):
-                get_field_meta_from_class(AttrsItem, "name")
+                utils.get_field_meta_from_class(AttrsItem, "name")
 
     @unittest.skipIf(not AttrsItem, "attrs module is not available")
-    @mock.patch("itemadapter.utils.attr", None)
+    @mock.patch("itemadapter._utils.attr", None)
     def test_module_not_available(self):
         from itemadapter.adapter import AttrsAdapter
 
