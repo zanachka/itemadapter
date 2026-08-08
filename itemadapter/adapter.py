@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from abc import ABCMeta, abstractmethod
 from collections.abc import Iterable, Iterator, KeysView, MutableMapping
 from functools import lru_cache
@@ -132,10 +133,6 @@ class AttrsAdapter(_MixinAttrsDataclassAdapter, AdapterInterface):
         self._fields_dict = attr.fields_dict(self.item.__class__)
 
     @classmethod
-    def is_item(cls, item: Any) -> bool:
-        return _is_attrs_class(item) and not isinstance(item, type)
-
-    @classmethod
     def is_item_class(cls, item_class: type) -> bool:
         return _is_attrs_class(item_class)
 
@@ -167,10 +164,6 @@ class DataclassAdapter(_MixinAttrsDataclassAdapter, AdapterInterface):
         super().__init__(item)
         # store a reference to the item's fields to avoid O(n) lookups and O(n^2) traversals
         self._fields_dict = {field.name: field for field in dataclasses.fields(self.item)}
-
-    @classmethod
-    def is_item(cls, item: Any) -> bool:
-        return dataclasses.is_dataclass(item) and not isinstance(item, type)
 
     @classmethod
     def is_item_class(cls, item_class: type) -> bool:
@@ -312,10 +305,6 @@ class _MixinDictScrapyItemAdapter:
 
 class DictAdapter(_MixinDictScrapyItemAdapter, AdapterInterface):
     @classmethod
-    def is_item(cls, item: Any) -> bool:
-        return isinstance(item, dict)
-
-    @classmethod
     def is_item_class(cls, item_class: type) -> bool:
         return issubclass(item_class, dict)
 
@@ -330,10 +319,6 @@ class DictAdapter(_MixinDictScrapyItemAdapter, AdapterInterface):
 
 
 class ScrapyItemAdapter(_MixinDictScrapyItemAdapter, AdapterInterface):
-    @classmethod
-    def is_item(cls, item: Any) -> bool:
-        return isinstance(item, _scrapy_item_classes)
-
     @classmethod
     def is_item_class(cls, item_class: type) -> bool:
         return issubclass(item_class, _scrapy_item_classes)
@@ -361,14 +346,39 @@ class ScrapyItemAdapter(_MixinDictScrapyItemAdapter, AdapterInterface):
         return KeysView(self.item.fields)
 
 
+@lru_cache
+def _has_item_overrides(adapter_classes: tuple[type[AdapterInterface], ...]) -> bool:
+    """Return True if any of the given adapter classes overrides is_item(), i.e.
+    decides on an item basis, and hence cannot be matched to an item by item
+    class alone."""
+    base_is_item = AdapterInterface.is_item.__func__  # type: ignore[attr-defined]
+    overriding = [
+        adapter_class
+        for adapter_class in adapter_classes
+        if getattr(adapter_class.is_item, "__func__", adapter_class.is_item) is not base_is_item
+    ]
+    if overriding:
+        names = ", ".join(adapter_class.__qualname__ for adapter_class in overriding)
+        warnings.warn(
+            f"The following adapter classes override the is_item() class method: {names}. "
+            f"Support for that will be removed, and items will then be matched to an "
+            f"adapter class by item class alone. Override is_item_class() instead.",
+            DeprecationWarning,
+            stacklevel=4,
+        )
+    return bool(overriding)
+
+
 @lru_cache(maxsize=1024)
 def _find_adapter_class(
     adapter_classes: tuple[type[AdapterInterface], ...], item_class: type
-) -> type[AdapterInterface] | None:
+) -> tuple[type[AdapterInterface] | None, bool]:
+    """Return the first of the given adapter classes that handles the given item
+    class, or None, along with the return value of _has_item_overrides()."""
     for adapter_class in adapter_classes:
         if adapter_class.is_item_class(item_class):
-            return adapter_class
-    return None
+            return adapter_class, _has_item_overrides(adapter_classes)
+    return None, _has_item_overrides(adapter_classes)
 
 
 class ItemAdapter(MutableMapping):
@@ -385,22 +395,36 @@ class ItemAdapter(MutableMapping):
     )
 
     def __init__(self, item: Any) -> None:
-        adapter_class = _find_adapter_class(tuple(self.ADAPTER_CLASSES), item.__class__)
+        adapter_classes = tuple(self.ADAPTER_CLASSES)
+        adapter_class, item_overrides = _find_adapter_class(adapter_classes, item.__class__)
+        if item_overrides:
+            adapter_class = next(
+                (
+                    candidate_class
+                    for candidate_class in adapter_classes
+                    if candidate_class.is_item(item)
+                ),
+                None,
+            )
         if adapter_class is None:
             raise TypeError(f"No adapter found for objects of type: {type(item)} ({item})")
         self.adapter = adapter_class(item)
 
     @classmethod
     def is_item(cls, item: Any) -> bool:
-        return cls.is_item_class(item.__class__)
+        adapter_classes = tuple(cls.ADAPTER_CLASSES)
+        adapter_class, item_overrides = _find_adapter_class(adapter_classes, item.__class__)
+        if item_overrides:
+            return any(adapter_class.is_item(item) for adapter_class in adapter_classes)
+        return adapter_class is not None
 
     @classmethod
     def is_item_class(cls, item_class: type) -> bool:
-        return _find_adapter_class(tuple(cls.ADAPTER_CLASSES), item_class) is not None
+        return _find_adapter_class(tuple(cls.ADAPTER_CLASSES), item_class)[0] is not None
 
     @classmethod
     def _get_adapter_class(cls, item_class: type) -> type[AdapterInterface]:
-        adapter_class = _find_adapter_class(tuple(cls.ADAPTER_CLASSES), item_class)
+        adapter_class = _find_adapter_class(tuple(cls.ADAPTER_CLASSES), item_class)[0]
         if adapter_class is None:
             raise TypeError(f"{item_class} is not a valid item class")
         return adapter_class
