@@ -50,13 +50,14 @@ class ScrapyItemTestCase(unittest.TestCase):
     @mock.patch("builtins.__import__", make_mock_import("scrapy"))
     def test_module_import_error(self):
         with clear_itemadapter_imports():
+            from itemadapter import utils
             from itemadapter.adapter import ScrapyItemAdapter
 
             assert not ScrapyItemAdapter.is_item(ScrapySubclassedItem(name="asdf", value=1234))
             with pytest.raises(
                 TypeError, match=r"tests.ScrapySubclassedItem'\> is not a valid item class"
             ):
-                get_field_meta_from_class(ScrapySubclassedItem, "name")
+                utils.get_field_meta_from_class(ScrapySubclassedItem, "name")
 
     @unittest.skipIf(not ScrapySubclassedItem, "scrapy module is not available")
     @mock.patch("itemadapter.adapter._scrapy_item_classes", ())

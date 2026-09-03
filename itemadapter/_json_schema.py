@@ -23,7 +23,7 @@ from typing import (
 )
 
 from ._imports import PydanticUndefined, PydanticV1Undefined, attr
-from .utils import _is_pydantic_model
+from ._utils import _is_pydantic_model
 
 if TYPE_CHECKING:
     from .adapter import AdapterInterface, ItemAdapter

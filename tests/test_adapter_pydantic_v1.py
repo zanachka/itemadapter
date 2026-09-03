@@ -56,16 +56,17 @@ class PydanticTestCase(unittest.TestCase):
     @mock.patch("builtins.__import__", make_mock_import("pydantic"))
     def test_module_import_error(self):
         with clear_itemadapter_imports():
+            from itemadapter import utils
             from itemadapter.adapter import PydanticAdapter
 
             assert not PydanticAdapter.is_item(PydanticV1Model(name="asdf", value=1234))
             with pytest.raises(
                 TypeError, match=r"tests.PydanticV1Model'\> is not a valid item class"
             ):
-                get_field_meta_from_class(PydanticV1Model, "name")
+                utils.get_field_meta_from_class(PydanticV1Model, "name")
 
-    @mock.patch("itemadapter.utils.pydantic", None)
-    @mock.patch("itemadapter.utils.pydantic_v1", None)
+    @mock.patch("itemadapter._utils.pydantic", None)
+    @mock.patch("itemadapter._utils.pydantic_v1", None)
     def test_module_not_available(self):
         from itemadapter.adapter import PydanticAdapter
 
